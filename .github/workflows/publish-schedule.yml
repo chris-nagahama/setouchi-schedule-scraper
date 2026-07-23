@@ -1,0 +1,95 @@
+name: Publish schedule data
+
+# The app reads the JSON this produces. Publishing hourly keeps a schedule
+# change visible within the hour, and — more importantly — means a change in
+# the official page's markup is fixed by editing the scraper rather than by
+# shipping an App Store release.
+on:
+  schedule:
+    # Offset from the hour: scheduled runs cluster on :00 across all of GitHub.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Refetch every detail page and allow a month to become empty"
+        type: boolean
+        default: false
+
+# A run rewrites the bucket, so overlapping runs would race.
+concurrency:
+  group: publish-schedule
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      # R2 has no regions, but the S3 client insists on one.
+      AWS_DEFAULT_REGION: auto
+      # Recent aws-cli versions attach checksums R2 does not accept on every
+      # request; asking for them only when required keeps sync working.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - run: pip install -r scripts/requirements.txt
+
+      - name: Check the parsers against the captured pages
+        # If the scraper and the fixtures have drifted apart, the bug is here,
+        # not on the official site. Finding out before touching live data keeps
+        # a bad parser from overwriting a good tree.
+        run: |
+          python scripts/scrape.py --verify --fixtures
+          python scripts/detail.py --verify --fixtures
+
+      - name: Fetch the published tree
+        # publish.py decides what to refetch, and refuses to blank a month, by
+        # comparing against what is already live — so the current tree has to
+        # come down before anything is built.
+        run: |
+          mkdir -p public
+          aws s3 sync "s3://$R2_BUCKET/" public/ --endpoint-url "$R2_ENDPOINT" --no-progress
+
+          # A download that quietly produced nothing would disarm every guard
+          # below: publish.py would see no previous months to compare against,
+          # and the upload's --delete would then rewrite the bucket from an
+          # unchecked tree.
+          remote=$(aws s3 ls "s3://$R2_BUCKET/v1/" --recursive --endpoint-url "$R2_ENDPOINT" | wc -l)
+          local=$(find public -name '*.json' | wc -l)
+          echo "bucket has $remote object(s); downloaded $local file(s)"
+          if [ "$remote" -gt 0 ] && [ "$local" -eq 0 ]; then
+            echo "::error::bucket is not empty but nothing was downloaded"
+            exit 1
+          fi
+
+      - name: Build the JSON tree
+        run: |
+          python scripts/publish.py --out public \
+            ${{ inputs.force && '--force' || '' }}
+
+      - name: Upload to R2
+        # --delete prunes detail pages for events that left the window. It is
+        # safe only because the build step aborts before writing anything when a
+        # month looks wrong; an empty public/ here would otherwise empty the
+        # bucket.
+        run: |
+          aws s3 sync public/ "s3://$R2_BUCKET/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --delete \
+            --no-progress \
+            --content-type application/json \
+            --cache-control "public, max-age=300"
