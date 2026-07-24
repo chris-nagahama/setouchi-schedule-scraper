@@ -24,6 +24,15 @@ from pathlib import Path
 import venues
 
 SCHEMA_VERSION = 1
+
+# Bump when the shape of a detail payload changes — a field added, renamed or
+# dropped. The publisher only refetches a detail page whose event moved, so
+# without this marker a payload that gained a field keeps its old contents
+# until its title or date happens to change, which for a date already past is
+# never. Distinct from SCHEMA_VERSION, which is the contract with the app;
+# this is only how the publisher decides what to rebuild.
+PAYLOAD_REVISION = 2
+
 BASE_URL = "https://sp.stu48.com"
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 

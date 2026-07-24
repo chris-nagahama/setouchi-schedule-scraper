@@ -68,6 +68,13 @@ the published tree harder than it guards freshness:
 - A single unreadable detail page only warns. Failing the whole run over one
   page would strand the entire schedule.
 
+Detail pages are otherwise rebuilt only when their event moves, so changing the
+shape of a payload — adding a field, renaming one — needs
+`detail.PAYLOAD_REVISION` bumped as well. The published index carries the
+revision it was built with, and a mismatch refetches every detail page once. A
+page whose date has already passed will never move again, and without this it
+would keep the old shape for good.
+
 Detail pages are fetched only for performances — the one category the app opens
 in-app — and only when an event is new or its title or date moved. A steady
 run makes five requests; the first makes forty-five.

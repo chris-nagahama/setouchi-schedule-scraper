@@ -84,6 +84,11 @@ def build(
     window = month_window(datetime.now(JAPAN), back, ahead)
     previous_index = read_json(out / "v1" / "index.json") or {}
     previous_signatures = previous_index.get("signatures", {})
+    # A payload shape change makes every detail page stale, however still its
+    # event looks. Nothing else would rebuild them: the signature below only
+    # tracks the event, so a page whose date has passed would keep a payload
+    # missing the new field for good.
+    reshaped = previous_index.get("payloadRevision") != detail_module.PAYLOAD_REVISION
 
     # Parse everything before writing anything.
     months: dict[str, dict] = {}
@@ -123,6 +128,7 @@ def build(
         event
         for event in performances
         if force
+        or reshaped
         or previous_signatures.get(event.id) != signatures[event.id]
         or not (out / "v1" / "performance" / f"{event.id}.json").exists()
     ]
@@ -175,6 +181,7 @@ def build(
         out / "v1" / "index.json",
         {
             "schemaVersion": SCHEMA_VERSION,
+            "payloadRevision": detail_module.PAYLOAD_REVISION,
             "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "months": sorted(months),
             "signatures": {
@@ -193,6 +200,12 @@ def build(
             "note: no coordinate in scripts/venues.json for "
             + ", ".join(sorted(unlocated)),
             file=sys.stderr,
+        )
+
+    if reshaped and previous_index:
+        print(
+            f"note: payload revision {detail_module.PAYLOAD_REVISION}; "
+            "refetched every detail page"
         )
 
     total_events = sum(len(payload["events"]) for payload in months.values())
