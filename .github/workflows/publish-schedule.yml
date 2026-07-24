@@ -55,6 +55,7 @@ jobs:
         run: |
           python scripts/scrape.py --verify --fixtures
           python scripts/detail.py --verify --fixtures
+          python scripts/venues.py --verify
 
       - name: Fetch the published tree
         # publish.py decides what to refetch, and refuses to blank a month, by

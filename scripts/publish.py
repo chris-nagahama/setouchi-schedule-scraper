@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 
 import detail as detail_module
 import scrape as scrape_module
+import venues
 
 SCHEMA_VERSION = 1
 JAPAN = ZoneInfo("Asia/Tokyo")
@@ -128,6 +129,7 @@ def build(
 
     details: dict[str, dict] = {}
     skipped: list[str] = []
+    unlocated: set[str] = set()
     for event in stale:
         fallback = detail_module.FallbackEvent(
             id=event.id,
@@ -151,8 +153,15 @@ def build(
             "schemaVersion": SCHEMA_VERSION,
             "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "id": event.id,
-            "occurrences": [asdict(occurrence) for occurrence in occurrences],
+            "occurrences": [
+                asdict(occurrence)
+                for occurrence in detail_module.with_venue_locations(occurrences)
+            ],
         }
+
+        for occurrence in occurrences:
+            if occurrence.venue and venues.coordinate_for(occurrence.venue) is None:
+                unlocated.add(occurrence.venue)
 
         if fixtures is None:
             time.sleep(REQUEST_INTERVAL_SECONDS)
@@ -174,6 +183,17 @@ def build(
             },
         },
     )
+
+    if unlocated:
+        # Not a failure. The app searches for a venue it was given no
+        # coordinate for, which still works in Japan — but the search is what
+        # this table exists to avoid, so a new tour stop should be visible in
+        # the log rather than waiting for someone to notice a blank map.
+        print(
+            "note: no coordinate in scripts/venues.json for "
+            + ", ".join(sorted(unlocated)),
+            file=sys.stderr,
+        )
 
     total_events = sum(len(payload["events"]) for payload in months.values())
     print(

@@ -17,9 +17,11 @@ import html as html_module
 import json
 import re
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+
+import venues
 
 SCHEMA_VERSION = 1
 BASE_URL = "https://sp.stu48.com"
@@ -34,6 +36,8 @@ CAST_LABELS = ("■出演メンバー", "■出演メンバー情報", "■出�
 TIME_LABELS = ("■開場/開演", "■開場／開演")
 DATE_LABELS = ("■公演日",)
 TITLE_LABELS = ("■公演タイトル",)
+# A tour announcement with no ■会場 label lists its stops under one of these.
+SCHEDULE_HEADINGS = ("スケジュール", "日程")
 
 # A labelled value stops at the next label, a bracketed heading, a footnote, a
 # horizontal rule of underscores, or the ticket section — the price block
@@ -68,6 +72,11 @@ class Occurrence:
     startTime: str | None
     venue: str | None
     memberNames: list[str] = field(default_factory=list)
+    # Filled by with_venue_locations, not by the parser. Nothing on the page
+    # states a coordinate, and keeping it out of parse_detail is what lets the
+    # fixture expectations stay the shared spec with the Swift parser, which
+    # has no table to consult.
+    venueLocation: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -292,6 +301,64 @@ def clean_venue(source: str) -> str:
     return source.strip("・：: \n\t　")
 
 
+def schedule_block_range(start: int, end: int, lines: list[str]) -> tuple[int, int] | None:
+    """The span of a "■【…】スケジュール" listing, if the page has one."""
+    heading = next(
+        (
+            index
+            for index in range(start, end)
+            if lines[index].startswith("■")
+            and any(marker in lines[index] for marker in SCHEDULE_HEADINGS)
+        ),
+        None,
+    )
+    if heading is None:
+        return None
+
+    block_start = heading + 1
+    block_end = next(
+        (index for index in range(block_start, end) if lines[index].startswith("■")),
+        end,
+    )
+    return (block_start, block_end) if block_start < block_end else None
+
+
+def is_venue_line(line: str, fallback_year: int) -> bool:
+    return (
+        not line.startswith(VALUE_TERMINATORS)
+        and parse_date(line, fallback_year) is None
+    )
+
+
+def schedule_block_venue(
+    date: ScheduleDate,
+    start: int,
+    end: int,
+    lines: list[str],
+) -> str | None:
+    """The venue a tour announcement lists under this occurrence's own date.
+
+    A tour announced before its dates get their own detail pages lists every
+    stop under a schedule heading, as a date line followed by a venue line, and
+    carries no ■会場 label at all.
+
+    Confined to that block on purpose: prose elsewhere on these pages mentions
+    dates too, and the line after one of those is a sentence, not a venue.
+    """
+    block = schedule_block_range(start, end, lines)
+    if block is None:
+        return None
+
+    block_start, block_end = block
+    for index in range(block_start, block_end):
+        if parse_date(lines[index], date.year) != date:
+            continue
+        venue_index = index + 1
+        if venue_index < block_end and is_venue_line(lines[venue_index], date.year):
+            return lines[venue_index]
+    return None
+
+
 def title_marks_stage(title: str, label: str) -> bool:
     """Whether a title already announces the stage a time slot belongs to.
 
@@ -313,7 +380,9 @@ def make_occurrences(
     end: int,
     lines: list[str],
 ) -> list[Occurrence]:
-    venue_value = first_labeled_value(VENUE_LABELS, start, end, lines)
+    venue_value = first_labeled_value(VENUE_LABELS, start, end, lines) or (
+        schedule_block_venue(date, start, end, lines)
+    )
     venue = clean_venue(venue_value) if venue_value else None
 
     cast_values = first_labeled_values(CAST_LABELS, start, end, lines)
@@ -429,12 +498,37 @@ def parse_detail(html: str, fallback: FallbackEvent) -> list[Occurrence]:
 # ------------------------------------------------------------------------ I/O
 
 
+def with_venue_locations(occurrences: list[Occurrence]) -> list[Occurrence]:
+    """Attach the coordinate the app pins, for the venues the table knows.
+
+    A venue the table does not cover keeps `venueLocation` null and the app
+    falls back to searching for it by name. `venues.py --unlisted` reports
+    those; see venues.json for why this is a table and not a geocoder call.
+    """
+    located = []
+    for occurrence in occurrences:
+        coordinate = venues.coordinate_for(occurrence.venue)
+        located.append(
+            replace(
+                occurrence,
+                venueLocation=(
+                    {"latitude": coordinate.latitude, "longitude": coordinate.longitude}
+                    if coordinate
+                    else None
+                ),
+            )
+        )
+    return located
+
+
 def detail_payload(event_id: str, occurrences: list[Occurrence]) -> dict:
     return {
         "schemaVersion": SCHEMA_VERSION,
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "id": event_id,
-        "occurrences": [asdict(occurrence) for occurrence in occurrences],
+        "occurrences": [
+            asdict(occurrence) for occurrence in with_venue_locations(occurrences)
+        ],
     }
 
 
@@ -527,7 +621,9 @@ EXPECTATIONS = {
             "date": ScheduleDate(2026, 9, 1),
             "openingTime": None,
             "startTime": None,
-            "venue": None,
+            # No ■会場 label on this page; the venue is under the schedule
+            # heading, on the line below its date.
+            "venue": "宮城県・仙台Rensa",
             "memberCount": 0,
             "firstMember": None,
             "lastMember": None,

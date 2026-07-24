@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-24T00:00:00Z",
+  "id": "22820",
+  "occurrences": [
+    {
+      "id": "22820-0-0",
+      "title": "STU48「アイドルの夜明け」公演〜宗雪里香生誕祭〜",
+      "date": {
+        "year": 2026,
+        "month": 7,
+        "day": 11
+      },
+      "openingTime": "11:45",
+      "startTime": "12:30",
+      "venue": "STU48広島劇場(広島クラブクアトロ)",
+      "memberNames": [
+        "内海 里音",
+        "迫 姫華",
+        "高雄 さやか",
+        "兵頭 葵",
+        "福田 朱里",
+        "宗雪 里香",
+        "森末 妃奈",
+        "渡辺 菜月"
+      ],
+      "venueLocation": {
+        "latitude": 34.392284,
+        "longitude": 132.461838
+      }
+    }
+  ]
+}

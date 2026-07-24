@@ -1,0 +1,71 @@
+{
+  "_comment": [
+    "Venue coordinates the app pins directly, so it never has to search for a",
+    "Japanese venue name on the device. It cannot do that dependably: the map",
+    "service follows the device's region, and a China-region device searches a",
+    "map of mainland China alone. It answers most of these names with nothing,",
+    "and answers the rest by matching the kanji against Chinese places.",
+    "",
+    "Curated rather than geocoded at run time. STU48 plays a small, repeating",
+    "set of venues, a wrong pin is worse than no pin, and a table is something",
+    "a person can check. Every entry records the address it came from and how",
+    "the coordinate was derived; keep doing that when adding one.",
+    "",
+    "A venue that is not here simply publishes without a coordinate, and the",
+    "app falls back to searching by name — which still works in Japan. Run",
+    "`python scripts/venues.py --unlisted` to see what the live schedule is",
+    "using that this file does not cover.",
+    "",
+    "WGS84, as the app and Apple Maps expect. Do not convert to GCJ-02: that",
+    "offset applies to data inside China and would move these off their venue.",
+    "",
+    "Names are matched loosely — width, case, a 都道府県 prefix and a",
+    "parenthetical alias are all normalised away — so one spelling usually",
+    "covers the variants the official pages use. See scripts/venues.py."
+  ],
+  "venues": [
+    {
+      "names": ["STU48広島劇場", "広島クラブクアトロ"],
+      "latitude": 34.392284,
+      "longitude": 132.461838,
+      "address": "広島県広島市中区本通10-1 広島パルコ本館10F",
+      "source": "GSI address search. OpenStreetMap places 広島パルコ本館 at 34.3921523,132.4619771, ~16m away."
+    },
+    {
+      "names": ["高松festhalle"],
+      "latitude": 34.338688,
+      "longitude": 134.052551,
+      "address": "香川県高松市常磐町1-3-2",
+      "source": "Address from festhalle.jp; GSI address search."
+    },
+    {
+      "names": ["品川インターシティホール"],
+      "latitude": 35.6251616,
+      "longitude": 139.7416653,
+      "address": "東京都港区港南2-15-4",
+      "source": "OpenStreetMap, which carries the hall itself. GSI puts the block centroid ~135m north."
+    },
+    {
+      "names": ["ヒューリックホール東京"],
+      "latitude": 35.673576,
+      "longitude": 139.762802,
+      "address": "東京都千代田区有楽町2-5-1 有楽町マリオン11F",
+      "source": "Address from hulic-theater.com; GSI address search."
+    },
+    {
+      "names": ["仙台Rensa"],
+      "latitude": 38.265152,
+      "longitude": 140.870438,
+      "address": "宮城県仙台市青葉区一番町4-9-18 TICビル7F",
+      "source": "Address from ja.wikipedia.org/wiki/Rensa; GSI address search."
+    },
+    {
+      "names": ["お台場・青海周辺エリア"],
+      "latitude": 35.625057,
+      "longitude": 139.778732,
+      "address": "東京都江東区青海一丁目",
+      "source": "GSI address search. Approximate: TOKYO IDOL FESTIVAL names an area rather than a building, and this pins the middle of it.",
+      "approximate": true
+    }
+  ]
+}
