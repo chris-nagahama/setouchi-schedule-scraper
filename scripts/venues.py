@@ -31,7 +31,11 @@ TABLE_PATH = Path(__file__).resolve().parent / "venues.json"
 JAPAN_LATITUDES = (20.0, 46.5)
 JAPAN_LONGITUDES = (122.0, 154.0)
 
-PREFECTURE_PREFIX = re.compile(r"^(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)[・\s]*")
+# The pages write the prefecture as a prefix off the venue's own name, with a
+# separator: "香川県・高松festhalle". The separator is required, because a venue
+# can begin with a prefecture name in its own right — 広島県民文化センター is
+# the 広島県民 culture centre, not 広島県 + 民文化センター.
+PREFECTURE_PREFIX = re.compile(r"^(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)[・\s]+")
 
 # Radicals the official pages use where the ideograph belongs. NFKC does not
 # fold these: the CJK Radicals Supplement block (U+2E80–U+2EFF) carries no
@@ -53,35 +57,39 @@ class Coordinate:
 
 
 def normalize(name: str) -> str:
-    """A venue name reduced to what two spellings of it have in common.
+    """A venue name folded to what two spellings of it have in common.
 
-    Folds width and case, replaces the stand-in radicals, and drops a 都道府県
-    prefix — the pages write "香川県・高松festhalle" and "高松festhalle" for the
-    same room. Spaces go too, since they come and go between the words.
+    Width, case, the stand-in radicals, and the spaces that come and go between
+    the words. Deliberately not the prefecture prefix: this is what a table key
+    is built with, and stripping there would file 広島県民文化センター under
+    民文化センター. Variants are the caller's business — see lookup_keys.
     """
     mapped = "".join(RADICAL_IDEOGRAPHS.get(character, character) for character in name)
     folded = unicodedata.normalize("NFKC", mapped).casefold()
-    without_prefecture = PREFECTURE_PREFIX.sub("", folded.strip())
-    return re.sub(r"[\s　]+", "", without_prefecture)
+    return re.sub(r"[\s　]+", "", folded.strip())
 
 
 def lookup_keys(name: str) -> list[str]:
-    """Every key a single venue string should be allowed to match.
+    """Every key one venue string from the pages should be allowed to match.
 
-    Pages name a room and then its operator's name for it, as
-    "STU48広島劇場(広島クラブクアトロ)". Either half should find the entry, and
-    the table should not have to carry the combination.
+    The pages prefix the prefecture — "香川県・高松festhalle" for the room the
+    table calls 高松festhalle — and name a room by its operator's name for it as
+    well, "STU48広島劇場(広島クラブクアトロ)". Any of those should find the
+    entry, and the table should not have to carry every combination.
     """
-    keys = [normalize(name)]
+    variants = [name]
 
     match = re.search(r"[（(]([^）)]*)[）)]", name)
     if match:
-        outside = (name[: match.start()] + name[match.end() :]).strip()
-        if outside:
-            keys.append(normalize(outside))
-        inside = match.group(1).strip()
-        if inside:
-            keys.append(normalize(inside))
+        variants.append(name[: match.start()] + name[match.end() :])
+        variants.append(match.group(1))
+
+    keys = []
+    for variant in variants:
+        stripped = variant.strip()
+        if stripped:
+            keys.append(normalize(stripped))
+            keys.append(normalize(PREFECTURE_PREFIX.sub("", stripped)))
 
     return [key for index, key in enumerate(keys) if key and key not in keys[:index]]
 

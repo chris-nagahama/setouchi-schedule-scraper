@@ -60,6 +60,48 @@
       "source": "Address from ja.wikipedia.org/wiki/Rensa; GSI address search."
     },
     {
+      "names": ["周南RISING HALL"],
+      "latitude": 34.050472,
+      "longitude": 131.806107,
+      "address": "山口県周南市銀南街49 4F",
+      "source": "GSI address search."
+    },
+    {
+      "names": ["広島県民文化センター多目的ホール", "広島県民文化センター"],
+      "latitude": 34.394417,
+      "longitude": 132.455978,
+      "address": "広島県広島市中区大手町1-5-3",
+      "source": "Address from pref.hiroshima.lg.jp; GSI address search."
+    },
+    {
+      "names": ["NIIGATA LOTS", "新潟LOTS"],
+      "latitude": 37.911823,
+      "longitude": 139.049042,
+      "address": "新潟県新潟市中央区幸西4-3-5 FM新潟本社ビル",
+      "source": "Address from fmniigata.com; GSI address search."
+    },
+    {
+      "names": ["松下IMPホール"],
+      "latitude": 34.691883,
+      "longitude": 135.529419,
+      "address": "大阪府大阪市中央区城見1-3-7 松下IMPビル",
+      "source": "GSI address search."
+    },
+    {
+      "names": ["club GRINDHOUSE", "徳島club GRINDHOUSE"],
+      "latitude": 34.064247,
+      "longitude": 134.549744,
+      "address": "徳島県徳島市秋田町2-23",
+      "source": "Address from c-gh.jp; GSI address search, which resolves to the chome rather than the building."
+    },
+    {
+      "names": ["CRAZYMAMA KINGDOM", "岡山CRAZYMAMA KINGDOM"],
+      "latitude": 34.656979,
+      "longitude": 133.923523,
+      "address": "岡山県岡山市北区中央町6-22 中央町ヒルズ4F",
+      "source": "GSI address search."
+    },
+    {
       "names": ["お台場・青海周辺エリア"],
       "latitude": 35.625057,
       "longitude": 139.778732,
