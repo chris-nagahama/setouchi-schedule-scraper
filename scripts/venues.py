@@ -35,7 +35,11 @@ JAPAN_LONGITUDES = (122.0, 154.0)
 # separator: "香川県・高松festhalle". The separator is required, because a venue
 # can begin with a prefecture name in its own right — 広島県民文化センター is
 # the 広島県民 culture centre, not 広島県 + 民文化センター.
-PREFECTURE_PREFIX = re.compile(r"^(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)[・\s]+")
+#
+# Which dot it is varies by entry — "北海道·cube garden" is typed with U+00B7,
+# where the rest of the schedule uses U+30FB. This runs before normalize(), and
+# NFKC folds neither into the other, so every spelling has to be listed here.
+PREFECTURE_PREFIX = re.compile(r"^(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)[・·･\s]+")
 
 # Radicals the official pages use where the ideograph belongs. NFKC does not
 # fold these: the CJK Radicals Supplement block (U+2E80–U+2EFF) carries no

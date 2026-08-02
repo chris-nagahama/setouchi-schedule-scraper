@@ -64,7 +64,10 @@ the published tree harder than it guards freshness:
 - Nothing is written until every month has parsed. A partial run leaves the
   previous tree untouched.
 - A month that used to have events is never replaced with an empty one. That
-  shape means the site changed, not that the schedule was cleared.
+  shape means the site changed, not that the schedule was cleared. A month that
+  was never populated is a different thing: the site drops the list container
+  entirely for a month it has scheduled nothing in, and the far end of the
+  window sits on one routinely, so that parses as empty rather than failing.
 - A single unreadable detail page only warns. Failing the whole run over one
   page would strand the entire schedule.
 

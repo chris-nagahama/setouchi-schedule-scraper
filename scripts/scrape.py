@@ -93,6 +93,13 @@ def parse_schedule_list(html: str, year: int, month: int) -> list[ScheduleEvent]
     soup = BeautifulSoup(html, "lxml")
 
     if not soup.select_one(".list--schedule"):
+        # A month with nothing scheduled yet renders without the list container
+        # at all, and the far end of the publish window regularly lands on one.
+        # The rest of the page is intact there — the category filter is what
+        # tells the two cases apart, so treating a missing list as a structure
+        # change would fail the whole run over a month that is merely empty.
+        if soup.select_one(".schedule.list--category"):
+            return []
         raise ParseError("no .list--schedule container; page structure changed")
 
     events: list[ScheduleEvent] = []
@@ -193,6 +200,10 @@ def verify(fixtures: Path) -> int:
         (2026, 6, 89, 12),
         (2026, 7, 77, 9),
         (2026, 8, 30, 9),
+        # A month the site has not scheduled anything for yet. It parses as
+        # empty rather than raising; the publish job's own guard is what keeps a
+        # month that *used* to have events from being blanked.
+        (2026, 11, 0, 0),
     ]
 
     failures = 0

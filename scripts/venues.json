@@ -108,6 +108,34 @@
       "address": "東京都江東区青海一丁目",
       "source": "GSI address search. Approximate: TOKYO IDOL FESTIVAL names an area rather than a building, and this pins the middle of it.",
       "approximate": true
+    },
+    {
+      "names": ["cube garden"],
+      "latitude": 43.0650648,
+      "longitude": 141.3601191,
+      "address": "北海道札幌市中央区北2条東3丁目2-5",
+      "source": "Address from cube-garden.com/access.php. OpenStreetMap carries the hall itself; GSI resolves the block to 43.064957,141.359985, ~16m away."
+    },
+    {
+      "names": ["BLUE LIVE HIROSHIMA"],
+      "latitude": 34.353813,
+      "longitude": 132.466095,
+      "address": "広島県広島市南区宇品海岸3丁目12-69",
+      "source": "Address from bluelive.jp/access; GSI address search, matched to the exact 番号. OpenStreetMap does not carry the hall. GSI reverse-geocodes the point back to 宇品海岸三丁目."
+    },
+    {
+      "names": ["名古屋ReNY limited"],
+      "latitude": 35.165936,
+      "longitude": 136.908371,
+      "address": "愛知県名古屋市中区栄3-15-20 エンゼルビルB1・B2",
+      "source": "Address from ruido.org/nagoya_reny; GSI address search, matched to the exact 番号. OpenStreetMap puts エンゼルビル ~38m away."
+    },
+    {
+      "names": ["UNITEDLAB", "UNITEDLAB."],
+      "latitude": 33.586658,
+      "longitude": 130.393921,
+      "address": "福岡県福岡市中央区大名1-3-36",
+      "source": "Address from unitedlab.live/access; GSI address search, matched to the exact 番号. OpenStreetMap does not carry the hall. The schedule writes the name with a trailing period, the venue does not, so both spellings are listed."
     }
   ]
 }
