@@ -16,6 +16,7 @@ back to searching by name, and that still works for a device in Japan.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -128,6 +129,19 @@ def load_table(path: Path = TABLE_PATH) -> dict[str, Coordinate]:
             origins[key] = name
 
     return table
+
+
+def fingerprint(path: Path = TABLE_PATH) -> str:
+    """What the published tree was built against, short enough to store.
+
+    A detail payload carries the coordinate this table gave at the time it was
+    written, and nothing about the event changes when the table gains the venue
+    it plays. Adding an entry used to reach only the pages that happened to be
+    rebuilt afterwards — the coordinates added for the August tour stops never
+    reached any of them — so the publisher keeps this and rebuilds when it
+    moves.
+    """
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
 _TABLE: dict[str, Coordinate] | None = None

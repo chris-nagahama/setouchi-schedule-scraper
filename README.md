@@ -18,7 +18,7 @@ people who never update the app.
 ## What it produces
 
 ```
-v1/index.json                 window, generation time, event signatures
+v1/index.json                 window, generation time, what was read and when
 v1/schedule/YYYY-MM.json      one month of events
 v1/performance/<id>.json      one performance's occurrences
 ```
@@ -71,16 +71,33 @@ the published tree harder than it guards freshness:
 - A single unreadable detail page only warns. Failing the whole run over one
   page would strand the entire schedule.
 
-Detail pages are otherwise rebuilt only when their event moves, so changing the
-shape of a payload — adding a field, renaming one — needs
-`detail.PAYLOAD_REVISION` bumped as well. The published index carries the
-revision it was built with, and a mismatch refetches every detail page once. A
-page whose date has already passed will never move again, and without this it
-would keep the old shape for good.
+## When a detail page is fetched again
 
-Detail pages are fetched only for performances — the one category the app opens
-in-app — and only when an event is new or its title or date moved. A steady
-run makes five requests; the first makes forty-five.
+Only performances have detail pages fetched at all — the one category the app
+opens in-app. One is fetched when the event is new, when its title or date
+moved, and every six hours for as long as its own page is still missing a cast
+or a start time. A steady run makes a handful of requests; the first makes
+thirty.
+
+That last rule is not an optimisation, it is the point. A show is announced in
+stages — the date and venue first, the cast and the times weeks later — and all
+of it after the first arrives on the detail page alone, without the month list
+changing by a character. Matching on the event was the original rule, and it
+meant a show could reach its date still published as having no cast while the
+official page had listed one for a fortnight. Rechecks stop once the payload is
+complete, and once the date has passed, so the cost is a couple of requests a
+run rather than the whole window. `v1/index.json` carries the time each page was
+last read, which is what paces them; the payloads do not, because rewriting
+every page hourly to update a timestamp would churn the whole tree to say that
+nothing had changed.
+
+Two things rebuild every detail page at once, because neither shows up in any
+event: a change to the shape or the reading of a payload, and a change to the
+venue table. Bump `detail.PAYLOAD_REVISION` for the first — a field added or
+renamed, or a parser fix that makes an unchanged page read differently.
+The second is automatic: the index records a fingerprint of `venues.json` and a
+mismatch refetches everything, which is what was missing when coordinates added
+for the August tour stops reached none of the pages already published.
 
 ## Why venues carry a coordinate
 

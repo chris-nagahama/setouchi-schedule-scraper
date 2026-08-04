@@ -25,13 +25,15 @@ import venues
 
 SCHEMA_VERSION = 1
 
-# Bump when the shape of a detail payload changes — a field added, renamed or
-# dropped. The publisher only refetches a detail page whose event moved, so
-# without this marker a payload that gained a field keeps its old contents
-# until its title or date happens to change, which for a date already past is
-# never. Distinct from SCHEMA_VERSION, which is the contract with the app;
-# this is only how the publisher decides what to rebuild.
-PAYLOAD_REVISION = 2
+# Bump when a detail payload's shape changes — a field added, renamed or
+# dropped — or when a fix here makes the parsers read the same page
+# differently. The publisher refetches a detail page whose event moved or whose
+# page still looks unannounced, and neither notices that the reading of an
+# unchanged page has changed, so without this marker a corrected parser would
+# only reach pages that happen to move afterwards. Distinct from
+# SCHEMA_VERSION, which is the contract with the app; this is only how the
+# publisher decides what to rebuild.
+PAYLOAD_REVISION = 3
 
 BASE_URL = "https://sp.stu48.com"
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
@@ -52,6 +54,26 @@ SCHEDULE_HEADINGS = ("スケジュール", "日程")
 # horizontal rule of underscores, or the ticket section — the price block
 # repeats other shows' titles behind its own ■ lines.
 VALUE_TERMINATORS = ("■", "＜", "※")
+
+# The bracketed heading, on its own. It ends a value everywhere except inside a
+# cast: a festival that plays more than one stage heads each group with one —
+# ＜HOTSTAGE＞, the names, then the next stage — and stopping there read the
+# whole cast as absent. Every other ＜…＞ on these pages opens an unrelated
+# section (＜料金＞, ＜必ずお読みください＞, ＜学生チケットについて＞) and follows
+# prose or a ※ line rather than a label, so a terminator above is always
+# reached first.
+GROUP_HEADING = "＜"
+
+# What the pages put between two names. Four are middle dots that render almost
+# identically: the Japanese ・ most pages use, its half-width form, and the
+# Latin · and • that arrive when a listing is pasted in from elsewhere. A cast
+# written with one of the latter used to come out as a single name.
+MEMBER_SEPARATORS = "・･·•、,，／/"
+MEMBER_JOIN = "・"
+
+# A label can carry a qualifier where a value would go: ■出演メンバー(昼夜公演共通)
+# names nobody. What survives removing bracketed runs tells the two apart.
+QUALIFIER = re.compile(r"[（(【\[〔][^）)】\]〕]*[）)】\]〕]")
 
 
 class ParseError(RuntimeError):
@@ -157,13 +179,27 @@ def is_label_line(line: str, labels: tuple[str, ...]) -> bool:
     return any(trimmed.startswith(label) for label in labels)
 
 
+def inline_value(line: str, label: str) -> str | None:
+    """The value written on the label line itself, if it holds one.
+
+    A label may carry a qualifier instead — ■出演メンバー(昼夜公演共通) names
+    nobody, and reading it as a value listed that note as a member. A real value
+    that merely ends in a parenthetical still counts, because something is left
+    of it once the brackets come out.
+    """
+    value = line.strip()[len(label):].strip("：: ・\t　")
+    if not value:
+        return None
+    return value if QUALIFIER.sub("", value).strip() else None
+
+
 def value_at(index: int, labels: tuple[str, ...], lines: list[str]) -> str | None:
     line = lines[index].strip()
     label = next((label for label in labels if line.startswith(label)), None)
     if label is None:
         return None
 
-    inline = line[len(label):].strip("：: ・\t　")
+    inline = inline_value(line, label)
     if inline:
         return inline
 
@@ -175,6 +211,7 @@ def first_labeled_values(
     start: int,
     end: int,
     lines: list[str],
+    skip_group_headings: bool = False,
 ) -> list[str] | None:
     label_index = next(
         (i for i in range(start, end) if is_label_line(lines[i], labels)),
@@ -188,13 +225,19 @@ def first_labeled_values(
     values: list[str] = []
 
     if matched:
-        inline = source[len(matched):].strip("：: ・\t　")
+        inline = inline_value(source, matched)
         if inline:
             values.append(inline)
 
     index = label_index + 1
     while index < end and len(values) < 4:
         line = lines[index]
+        if line.startswith(GROUP_HEADING):
+            # See GROUP_HEADING: only a cast reads these as part of the block.
+            if not skip_group_headings:
+                break
+            index += 1
+            continue
         if (
             any(line.startswith(prefix) for prefix in VALUE_TERMINATORS)
             or "_____" in line
@@ -294,16 +337,29 @@ def split_member_names(source: str, separators: str) -> list[str]:
 
 
 def member_names(source: str) -> list[str]:
-    names = split_member_names(source, "・、,，／/")
+    names: list[str] = []
+    for run in split_member_names(source, MEMBER_SEPARATORS):
+        # Festival pages separate the cast with spaces instead of punctuation. A
+        # space also separates a surname from a given name, so a run is only
+        # read as a list once it holds more spaces than one person's name would.
+        # Per run rather than over the whole cast: a festival that groups its
+        # stages gives one space-separated run for each of them, alongside runs
+        # naming a single member.
+        if run.count(" ") >= 2:
+            names.extend(split_member_names(run, " "))
+        else:
+            names.append(run)
 
-    # Festival pages separate the cast with spaces instead of punctuation. A
-    # space also separates a surname from a given name, so it is only read as a
-    # list separator once the usual separators produced a single run holding
-    # more spaces than one person's name would.
-    if len(names) == 1 and names[0].count(" ") >= 2:
-        return split_member_names(names[0], " ")
-
-    return names
+    # Those stage groups name again whoever appears in more than one, and the
+    # app shows the cast as one flat list.
+    unique: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        key = name.replace(" ", "")
+        if key not in seen:
+            seen.add(key)
+            unique.append(name)
+    return unique
 
 
 def clean_venue(source: str) -> str:
@@ -394,8 +450,10 @@ def make_occurrences(
     )
     venue = clean_venue(venue_value) if venue_value else None
 
-    cast_values = first_labeled_values(CAST_LABELS, start, end, lines)
-    cast = member_names("・".join(cast_values)) if cast_values else []
+    cast_values = first_labeled_values(
+        CAST_LABELS, start, end, lines, skip_group_headings=True
+    )
+    cast = member_names(MEMBER_JOIN.join(cast_values)) if cast_values else []
 
     time_values = first_labeled_values(TIME_LABELS, start, end, lines)
     time_source = " ".join(time_values) if time_values else " ".join(lines[start:end])
@@ -638,9 +696,26 @@ EXPECTATIONS = {
             "lastMember": None,
         }
     ],
+    # A festival: a different label vocabulary, a multi-day run where only one
+    # day is STU48's, and a cast separated by full-width spaces.
+    "22876": [
+        {
+            "title": "SKY ART FESTIVAL 2026",
+            "date": ScheduleDate(2026, 8, 1),
+            "openingTime": None,
+            "startTime": None,
+            "venue": "白良浜海水浴場",
+            "memberCount": 7,
+            "firstMember": "新井梨杏",
+            "lastMember": "吉田彩良",
+        }
+    ],
+    # The same shape after it grew a second and third stage: the cast is split
+    # into ＜…＞ groups, one per stage, and whoever plays more than one is named
+    # again under each.
     "22823": [
         {
-            "title": "TOKYO IDOL FESTIVAL 2026 supported by にしたんクリニック」",
+            "title": "TOKYO IDOL FESTIVAL 2026 supported by にしたんクリニック",
             "date": ScheduleDate(2026, 8, 2),
             "openingTime": None,
             "startTime": None,
@@ -648,6 +723,34 @@ EXPECTATIONS = {
             "memberCount": 16,
             "firstMember": "新井梨杏",
             "lastMember": "曽我部あこ",
+        }
+    ],
+    # A cast separated by · (U+00B7) rather than the ・ the rest of the site
+    # uses, under a label carrying a qualifier where its value would go.
+    "22801": [
+        {
+            "title": "STU48 Live Tour 2026",
+            "date": ScheduleDate(2026, 8, 31),
+            "openingTime": None,
+            "startTime": "18:30",
+            "venue": "北海道·cube garden",
+            "memberCount": 16,
+            "firstMember": "石原 侑奈",
+            "lastMember": "吉田 彩良",
+        }
+    ],
+    # The same qualifier on a page that separates its cast normally, which pins
+    # the qualifier down on its own.
+    "22803": [
+        {
+            "title": "STU48 Live Tour 2026",
+            "date": ScheduleDate(2026, 9, 12),
+            "openingTime": None,
+            "startTime": None,
+            "venue": "愛知県・名古屋ReNY limited",
+            "memberCount": 17,
+            "firstMember": "内海 里音",
+            "lastMember": "渡辺 菜月",
         }
     ],
 }

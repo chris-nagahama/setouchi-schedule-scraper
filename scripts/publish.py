@@ -17,8 +17,10 @@ a phone that will show whatever it finds:
   publishing it would blank the app for everyone.
 
 Detail pages are fetched only for performances — the only category the app
-opens in-app — and only when the event is new or its title or date moved, so a
-steady-state run makes four requests.
+opens in-app — when the event is new, when its title or date moved, and every
+few hours while its page is still missing a cast or a start time. Those last
+ones are the only way the announcements that never touch the month list get
+picked up; a steady-state run makes a handful of requests.
 """
 
 from __future__ import annotations
@@ -39,6 +41,13 @@ import venues
 SCHEMA_VERSION = 1
 JAPAN = ZoneInfo("Asia/Tokyo")
 REQUEST_INTERVAL_SECONDS = 1.0
+
+# How long to leave a performance whose page has not said everything yet before
+# looking again. A cast and a start time are announced on the detail page alone,
+# without the month list changing at all, so nothing else would ever notice.
+# Only pages still missing something are rechecked, and only until their date
+# passes, which is a couple of requests a run rather than the whole window.
+RECHECK_INTERVAL_SECONDS = 6 * 60 * 60
 
 
 class PublishError(RuntimeError):
@@ -69,8 +78,43 @@ def write_json(path: Path, payload: dict) -> None:
 
 
 def signature(event) -> str:
-    """What has to change before a detail page is worth fetching again."""
+    """What has to change on the month list before a detail page is refetched."""
     return f"{event.date.year:04d}-{event.date.month:02d}-{event.date.day:02d}|{event.title}"
+
+
+def is_incomplete(payload: dict | None) -> bool:
+    """Whether a published detail page is still waiting on its own page.
+
+    A performance is announced in stages: the date and venue first, the cast and
+    the times later, all on the detail page and none of it visible from the
+    month list. A payload missing either is one the page may since have filled
+    in — which is not the same as the show having no cast, and the app draws
+    them the same way, so the only way to be right is to look again.
+    """
+    if not payload:
+        return True
+    occurrences = payload.get("occurrences") or []
+    if not occurrences:
+        return True
+    if not any(occurrence.get("memberNames") for occurrence in occurrences):
+        return True
+    return not any(occurrence.get("startTime") for occurrence in occurrences)
+
+
+def says_the_same(first: dict, second: dict) -> bool:
+    """Whether two payloads carry the same content, their timestamps aside."""
+    return {key: value for key, value in first.items() if key != "generatedAt"} == {
+        key: value for key, value in second.items() if key != "generatedAt"
+    }
+
+
+def read_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def build(
@@ -81,14 +125,20 @@ def build(
     force: bool,
 ) -> int:
     now = datetime.now(timezone.utc)
+    today = datetime.now(JAPAN).date()
     window = month_window(datetime.now(JAPAN), back, ahead)
     previous_index = read_json(out / "v1" / "index.json") or {}
     previous_signatures = previous_index.get("signatures", {})
-    # A payload shape change makes every detail page stale, however still its
-    # event looks. Nothing else would rebuild them: the signature below only
-    # tracks the event, so a page whose date has passed would keep a payload
-    # missing the new field for good.
-    reshaped = previous_index.get("payloadRevision") != detail_module.PAYLOAD_REVISION
+    previous_checks = previous_index.get("checkedAt", {})
+    venues_fingerprint = venues.fingerprint()
+    # A payload shape change, a parser correction or a new venue coordinate
+    # makes every detail page stale, however still its event looks. Nothing
+    # else would rebuild them: the signature below only tracks the event, so a
+    # page whose date has passed would keep the old reading for good.
+    reshaped = (
+        previous_index.get("payloadRevision") != detail_module.PAYLOAD_REVISION
+        or previous_index.get("venuesFingerprint") != venues_fingerprint
+    )
 
     # Parse everything before writing anything.
     months: dict[str, dict] = {}
@@ -122,18 +172,46 @@ def build(
         if fixtures is None:
             time.sleep(REQUEST_INTERVAL_SECONDS)
 
-    # Detail pages: new events, or ones whose title or date moved.
+    # Detail pages: new events, ones whose title or date moved, and ones whose
+    # page has not finished announcing itself.
     signatures = {event.id: signature(event) for event in performances}
-    stale = [
-        event
-        for event in performances
-        if force
-        or reshaped
-        or previous_signatures.get(event.id) != signatures[event.id]
-        or not (out / "v1" / "performance" / f"{event.id}.json").exists()
-    ]
+
+    def due_for_recheck(event) -> bool:
+        """Whether an unfinished page is worth another look this run.
+
+        A show that has already happened will not gain a cast, and one looked at
+        recently will not have gained one since, so neither is fetched again.
+        """
+        if (event.date.year, event.date.month, event.date.day) < (
+            today.year,
+            today.month,
+            today.day,
+        ):
+            return False
+        if not is_incomplete(read_json(out / "v1" / "performance" / f"{event.id}.json")):
+            return False
+        checked = read_timestamp(previous_checks.get(event.id))
+        return (
+            checked is None
+            or (now - checked).total_seconds() >= RECHECK_INTERVAL_SECONDS
+        )
+
+    stale: list = []
+    rechecks = 0
+    for event in performances:
+        if (
+            force
+            or reshaped
+            or previous_signatures.get(event.id) != signatures[event.id]
+            or not (out / "v1" / "performance" / f"{event.id}.json").exists()
+        ):
+            stale.append(event)
+        elif due_for_recheck(event):
+            stale.append(event)
+            rechecks += 1
 
     details: dict[str, dict] = {}
+    read_now: list[str] = []
     skipped: list[str] = []
     unlocated: set[str] = set()
     for event in stale:
@@ -155,7 +233,8 @@ def build(
             skipped.append(event.id)
             continue
 
-        details[event.id] = {
+        read_now.append(event.id)
+        payload = {
             "schemaVersion": SCHEMA_VERSION,
             "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "id": event.id,
@@ -164,6 +243,14 @@ def build(
                 for occurrence in detail_module.with_venue_locations(occurrences)
             ],
         }
+
+        # Most rechecks find a page that still says what it said last time.
+        # Rewriting it would move `generatedAt` — which is meant to say when the
+        # performance last changed, not when it was last looked at — and hand
+        # the upload a tree of files to push that differ only in that.
+        published_detail = read_json(out / "v1" / "performance" / f"{event.id}.json")
+        if published_detail is None or not says_the_same(published_detail, payload):
+            details[event.id] = payload
 
         for occurrence in occurrences:
             if occurrence.venue and venues.coordinate_for(occurrence.venue) is None:
@@ -182,11 +269,23 @@ def build(
         {
             "schemaVersion": SCHEMA_VERSION,
             "payloadRevision": detail_module.PAYLOAD_REVISION,
+            "venuesFingerprint": venues_fingerprint,
             "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "months": sorted(months),
             "signatures": {
                 **{k: v for k, v in previous_signatures.items() if k in signatures},
                 **{k: v for k, v in signatures.items() if k not in skipped},
+            },
+            # When each detail page was last read, which is what paces the
+            # rechecks above. Kept here rather than in the payloads: a page
+            # rewritten hourly to update its own timestamp would churn the whole
+            # tree to say nothing had changed.
+            "checkedAt": {
+                **{k: v for k, v in previous_checks.items() if k in signatures},
+                **{
+                    event_id: now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    for event_id in read_now
+                },
             },
         },
     )
@@ -211,8 +310,9 @@ def build(
     total_events = sum(len(payload["events"]) for payload in months.values())
     print(
         f"published {len(months)} months ({total_events} events), "
-        f"{len(details)} detail page(s) refreshed, "
-        f"{len(performances) - len(stale)} unchanged, {len(skipped)} skipped"
+        f"{len(read_now)} detail page(s) read ({rechecks} rechecked), "
+        f"{len(details)} changed, {len(performances) - len(stale)} left alone, "
+        f"{len(skipped)} skipped"
     )
     return 0
 
