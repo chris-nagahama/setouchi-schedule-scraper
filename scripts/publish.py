@@ -6,6 +6,7 @@ Layout produced under `--out`:
     v1/index.json                 window, generation time, event signatures
     v1/schedule/YYYY-MM.json      one month of events
     v1/performance/<id>.json      one performance's occurrences
+    v1/news.json                  the newest entries from the official news index
 
 Two properties matter more than freshness, because every reader of this data is
 a phone that will show whatever it finds:
@@ -35,6 +36,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import detail as detail_module
+import news as news_module
 import scrape as scrape_module
 import venues
 
@@ -259,10 +261,35 @@ def build(
         if fixtures is None:
             time.sleep(REQUEST_INTERVAL_SECONDS)
 
+    # The news index. Deliberately not fatal: it is one secondary section of one
+    # screen, and failing here would strand the schedule that every other reader
+    # came for. A run that cannot read it leaves the published file alone, and
+    # the app decides for itself whether what it finds is too old to show.
+    news_items: list | None = None
+    try:
+        news_items = news_module.parse_news_list(news_module.load_news(fixtures))
+    except Exception as error:
+        print(f"warning: news: {error}", file=sys.stderr)
+
     for key, payload in months.items():
         write_json(out / "v1" / "schedule" / f"{key}.json", payload)
     for event_id, payload in details.items():
         write_json(out / "v1" / "performance" / f"{event_id}.json", payload)
+
+    if news_items is not None:
+        # Rewritten every run even when the entries are identical, unlike the
+        # detail pages. It is a single small file, and the timestamp is what
+        # lets the app tell "nothing was published today" from "this job has
+        # been dead for a week" — which it cannot do if the file only moves
+        # when the news does.
+        write_json(
+            out / "v1" / "news.json",
+            {
+                "schemaVersion": news_module.SCHEMA_VERSION,
+                "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "items": [asdict(item) for item in news_items],
+            },
+        )
 
     write_json(
         out / "v1" / "index.json",
@@ -312,7 +339,8 @@ def build(
         f"published {len(months)} months ({total_events} events), "
         f"{len(read_now)} detail page(s) read ({rechecks} rechecked), "
         f"{len(details)} changed, {len(performances) - len(stale)} left alone, "
-        f"{len(skipped)} skipped"
+        f"{len(skipped)} skipped, "
+        + (f"{len(news_items)} news item(s)" if news_items is not None else "news unread")
     )
     return 0
 

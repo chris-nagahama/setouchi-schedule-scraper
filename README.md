@@ -21,6 +21,7 @@ people who never update the app.
 v1/index.json                 window, generation time, what was read and when
 v1/schedule/YYYY-MM.json      one month of events
 v1/performance/<id>.json      one performance's occurrences
+v1/news.json                  the newest entries from the official news index
 ```
 
 Published to a Cloudflare R2 bucket by `.github/workflows/publish-schedule.yml`,
@@ -32,6 +33,7 @@ which runs hourly and can be triggered by hand.
 | --- | --- |
 | `scripts/scrape.py` | Month list pages → events |
 | `scripts/detail.py` | Performance detail pages → occurrences |
+| `scripts/news.py` | The news index page → headlines |
 | `scripts/publish.py` | Runs both, writes the JSON tree, enforces the guards |
 | `scripts/venues.py` | Venue name → coordinate, from the curated table |
 | `scripts/venues.json` | The table, one entry per venue with its provenance |
@@ -45,6 +47,7 @@ python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
 # Check the parsers against the captured pages — no network.
 .venv/bin/python scripts/scrape.py --verify --fixtures
 .venv/bin/python scripts/detail.py --verify --fixtures
+.venv/bin/python scripts/news.py --verify --fixtures
 .venv/bin/python scripts/venues.py --verify
 
 # Build the tree into ./public without touching the bucket.
@@ -70,6 +73,15 @@ the published tree harder than it guards freshness:
   window sits on one routinely, so that parses as empty rather than failing.
 - A single unreadable detail page only warns. Failing the whole run over one
   page would strand the entire schedule.
+- An unreadable news index only warns too, and leaves `v1/news.json` as it was.
+  News is one section of one screen; the schedule is what every reader came
+  for, and it should not go down with it.
+
+`v1/news.json` is the one payload rewritten every run whether or not it
+changed. It is a single small file, and its timestamp is the only way the app
+can tell a quiet day from a job that stopped a week ago — a file that moves
+only when the news does cannot say that. The detail pages are the opposite case
+for the opposite reason: there are hundreds of them.
 
 ## When a detail page is fetched again
 
