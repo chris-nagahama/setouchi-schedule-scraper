@@ -87,18 +87,33 @@ for the opposite reason: there are hundreds of them.
 
 Only performances have detail pages fetched at all — the one category the app
 opens in-app. One is fetched when the event is new, when its title or date
-moved, and every six hours for as long as its own page is still missing a cast
-or a start time. A steady run makes a handful of requests; the first makes
-thirty.
+moved, every six hours for as long as its own page is still missing a cast or a
+start time, and every six hours once the show is within a week, whether or not
+its payload looks finished. A steady run makes a handful of requests; the first
+makes thirty.
 
-That last rule is not an optimisation, it is the point. A show is announced in
-stages — the date and venue first, the cast and the times weeks later — and all
-of it after the first arrives on the detail page alone, without the month list
-changing by a character. Matching on the event was the original rule, and it
-meant a show could reach its date still published as having no cast while the
-official page had listed one for a fortnight. Rechecks stop once the payload is
-complete, and once the date has passed, so the cost is a couple of requests a
-run rather than the whole window. `v1/index.json` carries the time each page was
+Those last two rules are not an optimisation, they are the point. A show is
+announced in stages — the date and venue first, the cast and the times weeks
+later — and all of it after the first arrives on the detail page alone, without
+the month list changing by a character. Matching on the event was the original
+rule, and it meant a show could reach its date still published as having no
+cast while the official page had listed one for a fortnight.
+
+Waiting on the payload to look unfinished is not enough on its own, because a
+tour date is published twice. It goes up as an announcement — the whole tour's
+dates, the times as one line of prose — and is replaced, as the date nears, by
+that stop's own page carrying `■公演日`, the venue, and `■開場/開演`, which is
+where a day that runs twice first says so. The announcement parses into a
+payload with a cast and a start time, so it reads as finished, and both stops of
+the August tour sat on one: read on the 4th, still describing a replaced page on
+the 31st, one of them hiding a second stage that therefore reached nobody — not
+the schedule, and not the reminder. The window is what catches that rewrite.
+
+Rechecks stop once the payload is complete and the show is more than a week
+out, and once the date has passed, so the cost is a couple of requests a run
+rather than the whole window. A recheck that finds the page unchanged writes
+nothing at all: `generatedAt` says when the performance last changed, not when
+it was last looked at. `v1/index.json` carries the time each page was
 last read, which is what paces them; the payloads do not, because rewriting
 every page hourly to update a timestamp would churn the whole tree to say that
 nothing had changed.

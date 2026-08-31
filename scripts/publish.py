@@ -18,10 +18,11 @@ a phone that will show whatever it finds:
   publishing it would blank the app for everyone.
 
 Detail pages are fetched only for performances — the only category the app
-opens in-app — when the event is new, when its title or date moved, and every
-few hours while its page is still missing a cast or a start time. Those last
-ones are the only way the announcements that never touch the month list get
-picked up; a steady-state run makes a handful of requests.
+opens in-app — when the event is new, when its title or date moved, every few
+hours while its page is still missing a cast or a start time, and every few
+hours once the show is within a week whether or not the payload looks
+finished. Those last two are the only way the announcements that never touch
+the month list get picked up; a steady-state run makes a handful of requests.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ import json
 import sys
 import time
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -44,12 +45,28 @@ SCHEMA_VERSION = 1
 JAPAN = ZoneInfo("Asia/Tokyo")
 REQUEST_INTERVAL_SECONDS = 1.0
 
-# How long to leave a performance whose page has not said everything yet before
-# looking again. A cast and a start time are announced on the detail page alone,
-# without the month list changing at all, so nothing else would ever notice.
-# Only pages still missing something are rechecked, and only until their date
-# passes, which is a couple of requests a run rather than the whole window.
+# How long to leave a performance before looking at its page again. A cast and
+# a start time are announced on the detail page alone, without the month list
+# changing at all, so nothing else would ever notice.
 RECHECK_INTERVAL_SECONDS = 6 * 60 * 60
+
+# How near a show has to be for its page to be reread whether or not the
+# payload already looks finished.
+#
+# A tour date is published twice. It goes up as an announcement — the whole
+# tour's dates, one line of prose for the times — and is replaced, as the date
+# nears, by that stop's own page carrying the venue, the door time and, where
+# the day runs twice, both stages. Nothing about that rewrite reaches the month
+# list, and the announcement parses into a payload with a cast and a start time
+# that `is_incomplete` is satisfied by, so a payload could sit frozen on the
+# announcement until the show had come and gone. Both stops of the August tour
+# did: read once on the 4th, still describing a page that had been replaced by
+# the 31st, one of them hiding a second stage nobody was told about.
+#
+# A week. The rewrite lands with the ticket details rather than months out, and
+# a handful of shows fall inside it, so this is a couple of requests a run.
+# A recheck that finds the page unchanged writes nothing — see `says_the_same`.
+RECHECK_WINDOW_DAYS = 7
 
 
 class PublishError(RuntimeError):
@@ -179,18 +196,21 @@ def build(
     signatures = {event.id: signature(event) for event in performances}
 
     def due_for_recheck(event) -> bool:
-        """Whether an unfinished page is worth another look this run.
+        """Whether a page is worth another look this run.
 
-        A show that has already happened will not gain a cast, and one looked at
-        recently will not have gained one since, so neither is fetched again.
+        Two reasons to look: the payload has not said everything yet, or the
+        show is near enough that its page may have been rewritten under a
+        payload that looks finished. A show that has already happened is past
+        either, and one looked at recently will not have moved since, so
+        neither is fetched again.
         """
-        if (event.date.year, event.date.month, event.date.day) < (
-            today.year,
-            today.month,
-            today.day,
-        ):
+        event_date = date(event.date.year, event.date.month, event.date.day)
+        if event_date < today:
             return False
-        if not is_incomplete(read_json(out / "v1" / "performance" / f"{event.id}.json")):
+        if (
+            not is_incomplete(read_json(out / "v1" / "performance" / f"{event.id}.json"))
+            and (event_date - today).days > RECHECK_WINDOW_DAYS
+        ):
             return False
         checked = read_timestamp(previous_checks.get(event.id))
         return (
