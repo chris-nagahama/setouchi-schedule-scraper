@@ -199,11 +199,27 @@ def verify() -> int:
 def report_unlisted(published: Path) -> int:
     """Name the venues the published tree uses that the table does not cover.
 
-    How a new tour stop gets noticed. Never fails the run: a missing coordinate
-    degrades to a name search in the app, it does not break anything.
+    How a new tour stop — or a venue the pages have started spelling another
+    way — gets noticed. A missing coordinate is not itself a failure: the app
+    degrades to searching the name, which still works for a device in Japan.
+
+    Reading nothing is a failure, though. The directory is absent in a plain
+    checkout, and a glob over an absent directory is empty rather than an
+    error, so this reported that every venue was covered while checking none of
+    them. That is how NAGOYA ReNY limited went out without a coordinate.
     """
+    directory = published / "v1" / "performance"
+    if not directory.is_dir():
+        print(f"FAIL {directory}: no published tree to check")
+        return 1
+
+    paths = sorted(directory.glob("*.json"))
+    if not paths:
+        print(f"FAIL {directory}: holds no performance payloads")
+        return 1
+
     unlisted: dict[str, int] = {}
-    for path in sorted((published / "v1" / "performance").glob("*.json")):
+    for path in paths:
         payload = json.loads(path.read_text("utf-8"))
         for occurrence in payload.get("occurrences", []):
             venue = occurrence.get("venue")
@@ -211,10 +227,10 @@ def report_unlisted(published: Path) -> int:
                 unlisted[venue] = unlisted.get(venue, 0) + 1
 
     if not unlisted:
-        print("every published venue has a coordinate")
+        print(f"every venue in {len(paths)} payload(s) has a coordinate")
         return 0
 
-    print("venues without a coordinate, most used first:")
+    print(f"venues without a coordinate, over {len(paths)} payload(s), most used first:")
     for venue, count in sorted(unlisted.items(), key=lambda item: -item[1]):
         print(f"  {count:3d}  {venue}")
     return 0

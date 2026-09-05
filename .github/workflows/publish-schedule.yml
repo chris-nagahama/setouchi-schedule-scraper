@@ -83,6 +83,25 @@ jobs:
           python scripts/publish.py --out public \
             ${{ inputs.force && '--force' || '' }}
 
+      - name: Report venues without a coordinate
+        # A venue the table does not cover publishes without a pin, and the app
+        # then has to search the name on the device — which does not work for a
+        # reader outside Japan. Not worth failing a publish over: the tree is
+        # otherwise correct, and a reader in Japan still gets a map. It does
+        # have to be visible, though. Nothing ran this check before, so when the
+        # official pages restyled 名古屋ReNY limited as NAGOYA ReNY limited the
+        # table stopped matching it and the next show went out unpinned.
+        #
+        # A non-zero exit is the other failure: it means the check could not
+        # read the tree at all, and a check that silently examines nothing is
+        # what let the rename through in the first place.
+        run: |
+          set -o pipefail
+          python scripts/venues.py --unlisted public | tee unlisted.txt
+          if grep -q "without a coordinate" unlisted.txt; then
+            echo "::warning::$(grep -c '^  ' unlisted.txt) venue name(s) have no coordinate; see this step's log"
+          fi
+
       - name: Upload to R2
         # --delete prunes detail pages for events that left the window. It is
         # safe only because the build step aborts before writing anything when a

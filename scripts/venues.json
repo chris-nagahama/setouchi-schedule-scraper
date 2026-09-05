@@ -124,11 +124,11 @@
       "source": "Address from bluelive.jp/access; GSI address search, matched to the exact 番号. OpenStreetMap does not carry the hall. GSI reverse-geocodes the point back to 宇品海岸三丁目."
     },
     {
-      "names": ["名古屋ReNY limited"],
+      "names": ["名古屋ReNY limited", "NAGOYA ReNY limited"],
       "latitude": 35.165936,
       "longitude": 136.908371,
       "address": "愛知県名古屋市中区栄3-15-20 エンゼルビルB1・B2",
-      "source": "Address from ruido.org/nagoya_reny; GSI address search, matched to the exact 番号. OpenStreetMap puts エンゼルビル ~38m away."
+      "source": "Address from ruido.org/nagoya_reny; GSI address search, matched to the exact 番号. OpenStreetMap puts エンゼルビル ~38m away. Both spellings are the same room: the pages wrote 名古屋 when the 9/12 date went up and NAGOYA by the time it came round, and normalisation folds width and case but never kanji into Latin."
     },
     {
       "names": ["UNITEDLAB", "UNITEDLAB."],
